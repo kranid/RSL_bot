@@ -1,0 +1,70 @@
+replicaCount: 1
+
+image:
+  repository: registry.sberdevices.ru/rndml/rsl/rsl_tgbot/rsl_tg_bot
+  pullPolicy: IfNotPresent
+  command: ["/bin/bash"]
+  args: ["-c","source /vault/secrets/config && python3 -u run.py"]
+
+imagePullSecrets:
+  - name: gitlab-registry-secret
+
+strategy:
+  type: Recreate
+
+serviceAccount:
+  create: false
+  name: vault
+
+podAnnotations:
+  vault.hashicorp.com/agent-inject: "true"
+  vault.hashicorp.com/agent-inject-secret-config: "rsl/rsl-bot"
+  vault.hashicorp.com/role: "p-rsl"
+  vault.hashicorp.com/agent-pre-populate-only: "true"
+  vault.hashicorp.com/agent-inject-template-config: |
+    {{- with secret "rsl/rsl-bot" -}}
+    {{ range $k, $v := .Data.data }}export {{ $k }}={{ $v }}
+    {{ end }}{{- end -}}
+
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8090
+      protocol: TCP
+      targetPort: 8090
+
+ingress:
+  enabled: false
+
+route:
+  enabled: true
+  path: "/"
+  annotations:
+      haproxy.router.openshift.io/rewrite-target: /
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+  requests:
+    cpu: "250m"
+    memory: "128Mi"
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8090
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: 8090
+
+configMap:
+  enabled: true
+  config:
+    HTTPS_PROXY: http://proxy...
+    NO_PROXY: .sberdevices.ru
+git: 
+  projectUrl: https://git.sberdevices.ru/rndml/rsl/rsl_tgbot    

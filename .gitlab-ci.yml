@@ -1,0 +1,29 @@
+include:
+  - project: 'rndml-public/devops/job-templates'
+    ref: 'fix-container-check'
+    rules:
+      - if: $CI_PROJECT_URL =~ /git.sberdevices.ru/
+    file:
+      - '.deploy.yml'
+  - ".deploy.yml"       
+stages:
+  - prepare
+  - pack
+  - deploy
+
+.rules: 
+  rules:
+    - if: $CI_COMMIT_TAG =~ /(?:\d+\.){2}(?:\d+)$/
+
+get_version:
+  rules: !reference [.rules, rules]
+  extends: .getversion
+
+##### TG BOT immersive
+build_tg_bot:
+  stage: pack
+  extends: .kaniko
+  rules: !reference [.rules, rules]
+  variables:
+    GITLAB_DELIVERY: 'true'
+    PROJECT_NAME: rsl_tg_bot

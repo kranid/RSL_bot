@@ -1,0 +1,46 @@
+### tg bot immersive
+d-rsl-infra:
+  extends: .kube_deploy
+  stage: deploy
+  tags:
+    - kubernetes-std
+  rules: !reference [.rules, rules]
+  needs:
+    - job: get_version
+      artifacts: true
+    - job: build_tg_bot
+  when: manual
+  variables:
+    CHART_NAME: 'rsl_tg_bot'             
+    CHART_VALUES: advosd
+    APP_NAME: 'rsl_tg_bot'               
+    ENVIRONMENT: d-rsl-infra
+    APP_NAMESPACE: 'd-rsl-infra'
+    CHART_DIR: './helm'
+    CHART_NAME: '.'
+    CHART_REPO: https://gitlab-ci-token:$CI_JOB_TOKEN@git.sberdevices.ru/rndml/devops/helm-template.git
+    CHART_REF: 'master'
+    VALUES_PATH: envs/advosd.yaml
+
+p-rsl-infra:
+  extends: .kube_deploy
+  stage: deploy
+  tags:
+    - p-deployer
+  rules: !reference [.rules, rules]
+  needs:
+    - job: get_version
+      artifacts: true
+    - job: build_tg_bot
+  when: manual
+  variables:
+    CHART_NAME: 'rsl_tg_bot'             
+    CHART_VALUES: advosp
+    APP_NAME: 'rsl_tg_bot'               
+    ENVIRONMENT: p-rsl-infra
+    APP_NAMESPACE: 'p-rsl-infra'
+    CHART_DIR: './helm'
+    CHART_NAME: '.'
+    CHART_REPO: https://gitlab-ci-token:$CI_JOB_TOKEN@git.sberdevices.ru/rndml/devops/helm-template.git
+    CHART_REF: 'master'
+    VALUES_PATH: envs/advosp.yaml

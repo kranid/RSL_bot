@@ -1,0 +1,4 @@
+[flake8]
+exclude = .git,__pycache__,venv,__init__.py, tests
+max-line-length = 79
+ignore = BLK100, W503, E712
