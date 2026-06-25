@@ -1,3 +1,6 @@
+from core.settings import settings
+
+
 def validate_tg_id_format(value: str) -> bool:
     return value.isdigit()
 
@@ -47,6 +50,26 @@ def check_valid_content_type(
     content_type: str, valid_content_types: list[str]
 ) -> bool:
     return content_type in valid_content_types
+
+
+def check_media_limits(message) -> str | None:
+    limits = settings.limits
+    if not limits.enabled:
+        return None
+
+    media = message.video or message.video_note or message.animation
+    if media is None:
+        return None
+
+    file_size = getattr(media, "file_size", None)
+    if file_size is not None and file_size > limits.max_file_size_mb * 1024 * 1024:
+        return f"Видео слишком большое. Максимальный размер — {limits.max_file_size_mb} МБ."
+
+    duration = getattr(media, "duration", None)
+    if duration is not None and duration > limits.max_video_duration_seconds:
+        return f"Видео слишком длинное. Максимальная длительность — {limits.max_video_duration_seconds} сек."
+
+    return None
 
 
 def is_admin(user_role:str|None):

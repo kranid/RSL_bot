@@ -6,6 +6,7 @@
 # TODO: Добавить middleware для логирования
 
 import asyncio
+import aiohttp
 import logging
 import time
 
@@ -13,10 +14,11 @@ from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from pydantic import ValidationError
 
 from core.database.database_helper import DatabaseHelper
 from core.settings import settings
-from core.utils import check_valid_content_type, get_content_type, is_admin
+from core.utils import check_media_limits, check_valid_content_type, get_content_type, is_admin
 from keyboards.inline_keyboards import model_response_actions
 from managers.message_manager import TypeStates
 
@@ -67,7 +69,12 @@ async def create_user_router() -> Router:
         regen=False,
     ) -> None:
         logger = logging.getLogger(__name__)
-        
+
+        media_limit_error = check_media_limits(message)
+        if media_limit_error:
+            await message.answer(media_limit_error)
+            return
+
         content_type: str = get_content_type(message)
         if not regen and not check_valid_content_type(
             content_type, settings.tg.valid_content_types
@@ -117,7 +124,20 @@ async def create_user_router() -> Router:
                 },
                 deadline_seconds=settings.coordinator.task_deadline_seconds,
             )
-            generate_resp:GenerateResponse = await coordinator_client.generate_v4(req=generate_request, files=[file_stream])
+            try:
+                generate_resp:GenerateResponse = await coordinator_client.generate_v4(req=generate_request, files=[file_stream])
+            except asyncio.TimeoutError:
+                logger.exception("Timed out while sending video to coordinator")
+                await message.reply("Не удалось отправить видео на обработку: сервис не ответил вовремя. Попробуйте позже или отправьте более короткое видео.")
+                return
+            except aiohttp.ClientError:
+                logger.exception("Coordinator request failed while starting task")
+                await message.reply("Не удалось связаться с сервисом обработки. Попробуйте позже.")
+                return
+            except ValidationError:
+                logger.exception("Coordinator returned invalid response while starting task")
+                await message.reply("Сервис обработки вернул некорректный ответ. Попробуйте позже.")
+                return
             if generate_resp.result != GenerateResult.accepted:
                 logger.error(f"Error starting task! {generate_resp.result}")    
                 await message.reply("Не удалось запустить обработку! Пожалуйста, попробуйте заново!")
@@ -132,7 +152,20 @@ async def create_user_router() -> Router:
             while True:
                 logger.info(f"waiting for {wait_for}")
                 await asyncio.sleep(wait_for)
-                result:GetResultResponse = await coordinator_client.get_result(req=GetResultRequest(query_id=query_id))
+                try:
+                    result:GetResultResponse = await coordinator_client.get_result(req=GetResultRequest(query_id=query_id))
+                except asyncio.TimeoutError:
+                    logger.exception("Timed out while polling coordinator result")
+                    await message.reply("Сервис обработки не ответил вовремя при получении результата. Попробуйте позже.")
+                    return
+                except aiohttp.ClientError:
+                    logger.exception("Coordinator request failed while polling result")
+                    await message.reply("Не удалось получить результат от сервиса обработки. Попробуйте позже.")
+                    return
+                except ValidationError:
+                    logger.exception("Coordinator returned invalid response while polling result")
+                    await message.reply("Сервис обработки вернул некорректный ответ. Попробуйте позже.")
+                    return
                 match result.status:
                     case ResultStatus.cancelled:
                         logger.warning(f"request {query_id} was cancelled")

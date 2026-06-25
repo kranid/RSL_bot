@@ -1,6 +1,6 @@
 import os
 from typing import Annotated
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 
 
@@ -30,6 +30,12 @@ class CoordinatorSettings(BaseModel):
     max_polling_interval_seconds:float = 100
 
 
+class LimitsSettings(BaseModel):
+    enabled: bool = True
+    max_file_size_mb: int = Field(default=10, ge=1)
+    max_video_duration_seconds: int = Field(default=30, ge=1)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         from_attributes=True,
@@ -52,6 +58,7 @@ class Settings(BaseSettings):
     tg:TelegramSettings
     database:Database
     coordinator:CoordinatorSettings
+    limits:LimitsSettings = LimitsSettings()
 
 
 settings = Settings()
