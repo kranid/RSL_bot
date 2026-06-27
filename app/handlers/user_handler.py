@@ -17,8 +17,9 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from pydantic import ValidationError
 
 from core.database.database_helper import DatabaseHelper
+from core.limiter import Limiter
 from core.settings import settings
-from core.utils import check_media_limits, check_valid_content_type, get_content_type, is_admin
+from core.utils import check_media_limits, check_valid_content_type, get_content_type, is_admin, limiter_reject_text
 from keyboards.inline_keyboards import model_response_actions
 from managers.message_manager import TypeStates
 
@@ -83,7 +84,19 @@ async def create_user_router() -> Router:
                 "Бот может работать только с видео файлами. "
                 "Запишите кружочек или отправьте уже готовое видео :)"
             )
-        else:
+            return
+
+        assert message.from_user is not None
+        user_id = message.from_user.id
+
+        async def _notify_queue() -> None:
+            await message.answer("⏳ Система загружена, ваш запрос в очереди…")
+
+        async with Limiter.instance().acquire(user_id, on_enqueue=_notify_queue) as out:
+            if not out.acquired:
+                await message.answer(limiter_reject_text(out.decision))
+                return
+
             if message.video is not None:
                 video_file_obj = message.video
                 file_name = message.video.file_name
@@ -96,11 +109,11 @@ async def create_user_router() -> Router:
             else:
                 raise Exception("No video file provided")
             if file_name is None:
-                file_name = "_video.mp4"        
+                file_name = "_video.mp4"
             file_id = video_file_obj.file_id
             assert message.bot is not None
             file = await message.bot.get_file(file_id)
-            file_path:str|None = file.file_path
+            file_path: str | None = file.file_path
             assert file_path is not None
             assert video_file_obj.bot is not None
             file_stream = await video_file_obj.bot.download_file(
@@ -109,9 +122,7 @@ async def create_user_router() -> Router:
             assert file_stream is not None
             if not regen:
                 await message.answer(text="Видео получено! Запускаем обработку...")
-            # for optional meta info in dev mode
-            assert message.from_user is not None
-            
+            # необязательная мета-информация в dev-режиме
             generate_request = GenerateRequestV4(
                 trace_id=f"bot file {video_file_obj.file_id}",
                 mode="rsl:infer",
@@ -125,7 +136,7 @@ async def create_user_router() -> Router:
                 deadline_seconds=settings.coordinator.task_deadline_seconds,
             )
             try:
-                generate_resp:GenerateResponse = await coordinator_client.generate_v4(req=generate_request, files=[file_stream])
+                generate_resp: GenerateResponse = await coordinator_client.generate_v4(req=generate_request, files=[file_stream])
             except asyncio.TimeoutError:
                 logger.exception("Timed out while sending video to coordinator")
                 await message.reply("Не удалось отправить видео на обработку: сервис не ответил вовремя. Попробуйте позже или отправьте более короткое видео.")
@@ -139,7 +150,7 @@ async def create_user_router() -> Router:
                 await message.reply("Сервис обработки вернул некорректный ответ. Попробуйте позже.")
                 return
             if generate_resp.result != GenerateResult.accepted:
-                logger.error(f"Error starting task! {generate_resp.result}")    
+                logger.error(f"Error starting task! {generate_resp.result}")
                 await message.reply("Не удалось запустить обработку! Пожалуйста, попробуйте заново!")
                 return
             logger.info(f"Request task id: {generate_resp.query_id} ready estimation {generate_resp.ready_estimation_seconds}")
@@ -147,13 +158,12 @@ async def create_user_router() -> Router:
             assert generate_resp.ready_estimation_seconds is not None
             query_id = generate_resp.query_id
             time_start = time.perf_counter()
-            # see https://git.sberdevices.ru/rndml/rudalle/dalle_coordinator/-/tree/master/docs/api?ref_type=heads#%D0%B8%D1%81%D0%BF%D0%BE%D0%BB%D1%8C%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-%D0%BE%D1%86%D0%B5%D0%BD%D0%BA%D0%B8-%D0%BE%D1%81%D1%82%D0%B0%D0%B2%D1%88%D0%B5%D0%B3%D0%BE%D1%81%D1%8F-%D0%B2%D1%80%D0%B5%D0%BC%D0%B5%D0%BD%D0%B8-%D0%B2%D1%8B%D0%BF%D0%BE%D0%BB%D0%BD%D0%B5%D0%BD%D0%B8%D1%8F
             wait_for = min(max(generate_resp.ready_estimation_seconds / 2, settings.coordinator.min_polling_interval_seconds), settings.coordinator.max_polling_interval_seconds)
             while True:
                 logger.info(f"waiting for {wait_for}")
                 await asyncio.sleep(wait_for)
                 try:
-                    result:GetResultResponse = await coordinator_client.get_result(req=GetResultRequest(query_id=query_id))
+                    result: GetResultResponse = await coordinator_client.get_result(req=GetResultRequest(query_id=query_id))
                 except asyncio.TimeoutError:
                     logger.exception("Timed out while polling coordinator result")
                     await message.reply("Сервис обработки не ответил вовремя при получении результата. Попробуйте позже.")
@@ -178,9 +188,9 @@ async def create_user_router() -> Router:
                         if time.perf_counter() - time_start > settings.coordinator.task_deadline_seconds * 1.5:
                             logger.warning(f"request {query_id} timed out")
                             await message.reply("Запрос не успел выполниться вовремя и был отменен. Пожалуйста, попробуйте заново!")
-                            break                        
+                            break
                     case ResultStatus.ready:
-                        text:str|None = None
+                        text: str | None = None
                         if result.result_json is not None:
                             text = result.result_json.get("text", None)
                         if text is not None:
@@ -202,5 +212,4 @@ async def create_user_router() -> Router:
                         break
                     case _:
                         logger.warning(f"Got unexpected status {result.status} for request {query_id}")
-
     return user_router

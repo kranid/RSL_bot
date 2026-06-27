@@ -1,3 +1,4 @@
+from core.limiter import Decision
 from core.settings import settings
 
 
@@ -74,3 +75,10 @@ def check_media_limits(message) -> str | None:
 
 def is_admin(user_role:str|None):
     return user_role in ["admin", "superadmin"]
+
+def limiter_reject_text(decision: Decision) -> str:
+    if decision is Decision.USER_BUSY:
+        return "Ваше предыдущее видео ещё обрабатывается. Дождитесь результата, пожалуйста."
+    if decision is Decision.OVERLOADED:
+        return "Сервис сейчас перегружен. Попробуйте через пару минут."
+    return "Не удалось принять запрос."

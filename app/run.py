@@ -16,6 +16,7 @@ from core.commands_bot_utils import BOT_COMMANDS
 from core.settings import settings
 from handlers import create_user_router, admin_router, superadmin_router
 from core.database.database_helper import DatabaseHelper
+from core.limiter import Limiter
 from middlewares.permission_middleware import PermissionMiddleware
 
 
@@ -45,6 +46,7 @@ async def main():
     logging.getLogger('aiohttp.access').setLevel(logging.WARN)
 
     await DatabaseHelper()
+    Limiter.init(settings.limits)
 
     custom_api_url = os.environ.get("TELEGRAM_CUSTOM_API_URL", default=None)
     proxy = os.environ.get('HTTPS_PROXY', None)
