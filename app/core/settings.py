@@ -37,6 +37,10 @@ class LimitsSettings(BaseModel):
     user_max_concurrent: int = Field(default=1, ge=1)
     global_max_concurrent: int = Field(default=3, ge=1)   # ≈ число воркеров; плейсхолдер до avg_worker_count
     global_queue_max: int = Field(default=30, ge=0)
+    flood_max_events: int = Field(default=20, ge=1)
+    flood_window_seconds: int = Field(default=10, ge=1)
+    flood_mute_seconds: int = Field(default=300, ge=1)
+    flood_notify: bool = True
 
 
 class Settings(BaseSettings):

@@ -17,6 +17,7 @@ from core.settings import settings
 from handlers import create_user_router, admin_router, superadmin_router
 from core.database.database_helper import DatabaseHelper
 from core.limiter import Limiter
+from core.throttling import FloodGuardMiddleware
 from middlewares.permission_middleware import PermissionMiddleware
 
 
@@ -77,6 +78,15 @@ async def main():
     dp.include_router(admin_router)
     dp.include_router(superadmin_router)
     dp.include_router(user_router)
+    flood_guard = FloodGuardMiddleware(
+        enabled=settings.limits.enabled,
+        max_events=settings.limits.flood_max_events,
+        window_seconds=settings.limits.flood_window_seconds,
+        mute_seconds=settings.limits.flood_mute_seconds,
+        notify=settings.limits.flood_notify,
+    )
+    dp.message.outer_middleware(flood_guard)
+    dp.callback_query.outer_middleware(flood_guard)
     dp.message.middleware(PermissionMiddleware(router_roles={
         user_router: ["user", "admin", "superadmin"],
         admin_router: ["admin", "superadmin"],
