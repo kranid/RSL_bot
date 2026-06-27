@@ -187,6 +187,10 @@ async def create_user_router() -> Router:
                         wait_for = min(max(result.ready_estimation_seconds / 2, settings.coordinator.min_polling_interval_seconds), settings.coordinator.max_polling_interval_seconds)
                         if time.perf_counter() - time_start > settings.coordinator.task_deadline_seconds * 1.5:
                             logger.warning(f"request {query_id} timed out")
+                            try:
+                                await coordinator_client.cancel(req=CancelRequest(query_id=query_id))
+                            except Exception:
+                                logger.warning(f"failed to cancel request {query_id} after timeout", exc_info=True)
                             await message.reply("Запрос не успел выполниться вовремя и был отменен. Пожалуйста, попробуйте заново!")
                             break
                     case ResultStatus.ready:
