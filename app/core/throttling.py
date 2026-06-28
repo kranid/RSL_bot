@@ -107,3 +107,55 @@ class FloodGuardMiddleware(BaseMiddleware):
                 await event.answer(text, show_alert=False)
         except Exception:
             logger.debug("flood notify failed", exc_info=True)
+
+
+class Cooldown:
+    """Минимальный интервал между принятыми отправками видео у одного пользователя."""
+
+    _instance: Optional["Cooldown"] = None
+
+    def __init__(self, *, enabled: bool = True, cooldown_seconds: int = 10) -> None:
+        self.enabled = enabled
+        self.cooldown_seconds = cooldown_seconds
+        self._seen: TTLCache[int, float] = TTLCache(
+            maxsize=_MAX_TRACKED_USERS, ttl=max(cooldown_seconds, 1)
+        )
+
+    @classmethod
+    def init(cls, limits) -> "Cooldown":
+        cls._instance = cls(
+            enabled=limits.enabled,
+            cooldown_seconds=limits.user_cooldown_seconds,
+        )
+        logger.info(
+            "Cooldown initialised: enabled=%s cooldown_seconds=%s",
+            cls._instance.enabled,
+            cls._instance.cooldown_seconds,
+        )
+        return cls._instance
+
+    @classmethod
+    def instance(cls) -> "Cooldown":
+        if cls._instance is None:
+            raise RuntimeError("Cooldown is not initialised; call Cooldown.init(...) first")
+        return cls._instance
+
+    def hit(self, user_id: int) -> float:
+        """
+        Зарегистрировать попытку отправки.
+
+        Возвращает 0.0, если можно продолжать, либо число секунд, которые
+        еще осталось подождать. При отказе состояние не меняется.
+        """
+        if not self.enabled:
+            return 0.0
+
+        now = time.monotonic()
+        last = self._seen.get(user_id)
+        if last is not None:
+            remaining = self.cooldown_seconds - (now - last)
+            if remaining > 0:
+                return remaining
+
+        self._seen[user_id] = now
+        return 0.0

@@ -23,7 +23,7 @@ class PermissionMiddleware(BaseMiddleware):
         message = cast(Message, event)
         message_text:str|None = message.text
         if message_text:
-            command:str = message_text.split()[0]
+            command:str = message_text.split()[0].split("@")[0]
             if command == "/start":
                 return await handler(event, data)
         assert message.from_user is not None

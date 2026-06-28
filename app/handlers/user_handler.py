@@ -11,7 +11,7 @@ import logging
 import time
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from pydantic import ValidationError
@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from core.database.database_helper import DatabaseHelper
 from core.limiter import Limiter
 from core.settings import settings
+from core.throttling import Cooldown
 from core.utils import check_media_limits, check_valid_content_type, get_content_type, is_admin, limiter_reject_text
 from keyboards.inline_keyboards import model_response_actions
 from managers.message_manager import TypeStates
@@ -34,15 +35,33 @@ async def create_user_router() -> Router:
     coordinator_client = CoordinatorClient(base_url=settings.coordinator.url, api_key=settings.coordinator.key)
 
     @user_router.message(CommandStart())
-    async def command_start_handler(message: Message, state: FSMContext) -> None:
+    async def command_start_handler(message: Message, state: FSMContext, command: CommandObject) -> None:
         await state.clear()
         assert message.from_user is not None
+
+        provided_code = (command.args or "").strip()
+        if provided_code == settings.tg.invite_code:
+            current_role = await DatabaseHelper.instance().get_user_role(message.from_user.id)
+            if current_role is None:
+                # выдаём роль только тем, у кого её ещё нет
+                # (admin/superadmin/уже выданный user не трогаем — не понижаем)
+                await DatabaseHelper.instance().add_user_or_update(
+                    message.from_user.id, message.from_user.username, role="user", manual_flg=True
+                )
+            await message.answer(
+                "Добро пожаловать! \nЯ бот для перевода русского жестового языка.\n"
+                "Запишите кружочек или отправьте видеофайл для тестирования ML модели "
+            )
+            return
+
+        # без кода или неверный код -> роль не выдаём; заявка на одобрение будет в коммите 2
         await DatabaseHelper.instance().add_user_or_update(
             message.from_user.id, message.from_user.username, role=None
         )
         await message.answer(
-            "Добро пожаловать! 👋\nЯ бот для перевода русского жестового языка.\n"
-            "Запишите кружочек или отправьте видеофайл для тестирования ML модели 🙂"
+            "Здравствуйте! Доступ к боту выдаётся по приглашению.\n"
+            "Если у вас есть пригласительная ссылка — перейдите по ней. "
+            "Либо дождитесь одобрения заявки администратором."
         )
 
 
@@ -88,6 +107,13 @@ async def create_user_router() -> Router:
 
         assert message.from_user is not None
         user_id = message.from_user.id
+
+        remaining = Cooldown.instance().hit(user_id)
+        if remaining > 0:
+            await message.answer(
+                f"Не так часто, пожалуйста. Подождите ещё {int(remaining) + 1} сек."
+            )
+            return
 
         async def _notify_queue() -> None:
             await message.answer("⏳ Система загружена, ваш запрос в очереди…")

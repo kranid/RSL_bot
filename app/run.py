@@ -17,7 +17,7 @@ from core.settings import settings
 from handlers import create_user_router, admin_router, superadmin_router
 from core.database.database_helper import DatabaseHelper
 from core.limiter import Limiter
-from core.throttling import FloodGuardMiddleware
+from core.throttling import Cooldown, FloodGuardMiddleware
 from middlewares.permission_middleware import PermissionMiddleware
 
 
@@ -48,6 +48,7 @@ async def main():
 
     await DatabaseHelper()
     Limiter.init(settings.limits)
+    Cooldown.init(settings.limits)
 
     custom_api_url = os.environ.get("TELEGRAM_CUSTOM_API_URL", default=None)
     proxy = os.environ.get('HTTPS_PROXY', None)
