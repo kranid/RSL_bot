@@ -58,3 +58,21 @@ model_response_actions = InlineKeyboardMarkup(
         [InlineKeyboardButton(text="🔁 Перегенерация", callback_data="regen")],
     ]
 )
+
+confirm_ban_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Да", callback_data="confirm_ban_yes"),
+            InlineKeyboardButton(text="Нет", callback_data="confirm_ban_no"),
+        ]
+    ]
+)
+
+confirm_unban_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Да", callback_data="confirm_unban_yes"),
+            InlineKeyboardButton(text="Нет", callback_data="confirm_unban_no"),
+        ]
+    ]
+)

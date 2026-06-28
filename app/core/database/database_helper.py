@@ -4,7 +4,12 @@ from dataclasses import dataclass
 import asyncpg
 from asyncpg.connect_utils import SessionAttribute
 
-from exceptions.database_exceptions import CantChangeHigherAccessRole, UserNotFoundException
+from exceptions.database_exceptions import (
+    CantChangeHigherAccessRole,
+    UserAlreadyBannedException,
+    UserHasNoRoleException,
+    UserNotFoundException,
+)
 from core.settings import settings
 
 
@@ -117,6 +122,45 @@ class DatabaseHelper:
             tg_id
         )
 
+    async def set_banned(self, tg_id: int, banned: bool) -> None:
+        await self.__pool.execute(
+            """
+                update users
+                set banned = $1
+                where tg_id = $2
+            """,
+            banned, tg_id
+        )
+
+    async def is_banned(self, tg_id: int) -> bool:
+        result = await self.__pool.fetchval(
+            """
+                select u.banned
+                from users u
+                where u.tg_id = $1
+            """,
+            tg_id
+        )
+        return bool(result)
+
+    async def ban_user(self, tg_id: int) -> None:
+        db_data = await self.select_user_data(tg_id)
+        if db_data is None:
+            raise UserNotFoundException(tg_id)
+        if db_data[2] is None:
+            raise UserHasNoRoleException
+        if db_data[2] in ("admin", "superadmin"):
+            raise CantChangeHigherAccessRole
+        if await self.is_banned(tg_id):
+            raise UserAlreadyBannedException
+        await self.set_banned(tg_id, True)
+
+    async def unban_user(self, tg_id: int) -> None:
+        db_data = await self.select_user_data(tg_id)
+        if db_data is None:
+            raise UserNotFoundException(tg_id)
+        await self.set_banned(tg_id, False)
+
     async def update_role(self, tg_id: int, role_name: Optional[str]):
         await self.__pool.execute(
             """
@@ -127,14 +171,17 @@ class DatabaseHelper:
             role_name, tg_id
         )
 
-    async def select_users(self) -> list[tuple[int, str, str]]:
+    async def select_users(self) -> list[tuple[int, str, str, bool]]:
         rows = await self.__pool.fetch(
             """
-                select u.tg_id, u.username, u.role
+                select u.tg_id, u.username, u.role, u.banned
                 from users u
                 where u.role in ('user', 'admin', 'superadmin')
                 order by u.username
             """
         )
-        users_list: list[tuple[int, str, str]] = [(row['tg_id'], row['username'], row['role']) for row in rows]
+        users_list: list[tuple[int, str, str, bool]] = [
+            (row['tg_id'], row['username'], row['role'], row['banned'])
+            for row in rows
+        ]
         return users_list

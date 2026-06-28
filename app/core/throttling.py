@@ -8,6 +8,8 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from cachetools import TTLCache
 
+from core.database.database_helper import DatabaseHelper
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,12 +51,19 @@ class FloodGuardMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        if not self.enabled:
-            return await handler(event, data)
-
         uid = self._get_user_id(event, data)
         if uid is None:
             # Служебные апдейты без пользователя пропускаем.
+            return await handler(event, data)
+
+        # Забаненные не проходят вообще - раньше ролей, мьюта и /start.
+        try:
+            if await DatabaseHelper.instance().is_banned(uid):
+                return None
+        except Exception:
+            logger.warning("ban check failed for user %s", uid, exc_info=True)
+
+        if not self.enabled:
             return await handler(event, data)
 
         # Уже замьючен -> молча отбрасываем .

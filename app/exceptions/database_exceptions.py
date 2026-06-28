@@ -11,3 +11,15 @@ class CantChangeHigherAccessRole(Exception):
 
     def __str__(self):
         return "Can't change higher access or the same role"
+
+
+class UserHasNoRoleException(Exception):
+
+    def __str__(self):
+        return "User has no role"
+
+
+class UserAlreadyBannedException(Exception):
+
+    def __str__(self):
+        return "User is already banned"

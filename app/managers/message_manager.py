@@ -7,3 +7,5 @@ class TypeStates(StatesGroup):
     delete_user: State = State()
     add_admin: State = State()
     delete_admin: State = State()
+    ban: State = State()
+    unban: State = State()

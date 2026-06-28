@@ -7,11 +7,15 @@ from core.database.database_helper import DatabaseHelper
 from core.utils import format_show_users_message, validate_tg_id_format
 from exceptions.database_exceptions import (
     CantChangeHigherAccessRole,
+    UserAlreadyBannedException,
+    UserHasNoRoleException,
     UserNotFoundException,
 )
 from keyboards.inline_keyboards import (
     confirm_add_user_role_keyboard,
+    confirm_ban_keyboard,
     confirm_delete_user_keyboard,
+    confirm_unban_keyboard,
 )
 from managers.message_manager import TypeStates
 
@@ -53,7 +57,9 @@ async def confirm_add_user_no_handler(
 
 @admin_router.message(Command("show_users"))
 async def show_all_users(message: Message) -> None:
-    users_list: list[tuple[int, str, str]] = await DatabaseHelper.instance().select_users()
+    users_list: list[
+        tuple[int, str, str, bool]
+    ] = await DatabaseHelper.instance().select_users()
     msg = format_show_users_message(users_list)
     await message.answer(text=msg)
 
@@ -154,3 +160,157 @@ async def pass_tg_id_to_delete_user_handler(
             )
     else:
         await message.answer("Необходимо ввести Telegram id пользователя")
+
+
+@admin_router.message(Command("ban"))
+async def ban_handler(message: Message, state: FSMContext) -> None:
+    await state.set_state(TypeStates.ban)
+    await message.answer(
+        text="Введите Telegram id пользователя, которого необходимо заблокировать"
+    )
+
+
+@admin_router.message(TypeStates.ban)
+async def pass_tg_id_to_ban_handler(
+    message: Message, state: FSMContext
+) -> None:
+    if message.text:
+        tg_id: str = message.text
+        if not validate_tg_id_format(tg_id):
+            await message.answer(
+                "Telegram id должен быть числом. Попробуйте выполнить команду еще раз"
+            )
+            await state.clear()
+        else:
+            tg_id_int: int = int(tg_id)
+            db_data = await DatabaseHelper.instance().select_user_data(tg_id_int)
+            if db_data is None:
+                await message.answer(
+                    f"Пользователь {tg_id} не найден. Попробуйте ввести Telegram id еще раз"
+                )
+                await state.clear()
+            elif await DatabaseHelper.instance().is_banned(tg_id_int):
+                await message.answer(f"Пользователь {tg_id} уже заблокирован")
+                await state.clear()
+            elif db_data[2] is None:
+                await message.answer(
+                    "Пользователю не выдана роль, его нельзя заблокировать"
+                )
+                await state.clear()
+            elif db_data[2] in ("admin", "superadmin"):
+                await message.answer(
+                    "Пользователей с ролью admin или superadmin нельзя заблокировать"
+                )
+                await state.clear()
+            else:
+                await state.update_data(tg_id=tg_id_int)
+                await message.answer(
+                    f"Подтвердите, что необходимо заблокировать пользователя {tg_id}",
+                    reply_markup=confirm_ban_keyboard,
+                )
+    else:
+        await message.answer("Необходимо ввести Telegram id пользователя")
+
+
+@admin_router.callback_query(F.data == "confirm_ban_yes")
+async def confirm_ban_yes_handler(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    tg_id:int|None = (await state.get_data()).get("tg_id")
+    assert isinstance(callback.message, Message)
+    assert tg_id is not None
+    try:
+        await DatabaseHelper.instance().ban_user(tg_id)
+    except UserNotFoundException:
+        await callback.message.answer(
+            f"Пользователь {tg_id} не найден. Попробуйте ввести Telegram id еще раз"
+        )
+    except UserAlreadyBannedException:
+        await callback.message.answer(f"Пользователь {tg_id} уже заблокирован")
+    except UserHasNoRoleException:
+        await callback.message.answer(
+            "Пользователю не выдана роль, его нельзя заблокировать"
+        )
+    except CantChangeHigherAccessRole:
+        await callback.message.answer(
+            "Пользователей с ролью admin или superadmin нельзя заблокировать"
+        )
+    else:
+        await callback.message.answer(f"Пользователь {tg_id} заблокирован")
+    await state.clear()
+
+
+@admin_router.callback_query(F.data == "confirm_ban_no")
+async def confirm_ban_no_handler(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    assert isinstance(callback.message, Message)
+    await callback.message.answer("Пользователь не был заблокирован")
+    await state.clear()
+
+
+@admin_router.message(Command("unban"))
+async def unban_handler(message: Message, state: FSMContext) -> None:
+    await state.set_state(TypeStates.unban)
+    await message.answer(
+        text="Введите Telegram id пользователя, которого необходимо разблокировать"
+    )
+
+
+@admin_router.message(TypeStates.unban)
+async def pass_tg_id_to_unban_handler(
+    message: Message, state: FSMContext
+) -> None:
+    if message.text:
+        tg_id: str = message.text
+        if not validate_tg_id_format(tg_id):
+            await message.answer(
+                "Telegram id должен быть числом. Попробуйте выполнить команду еще раз"
+            )
+            await state.clear()
+        else:
+            tg_id_int: int = int(tg_id)
+            db_data = await DatabaseHelper.instance().select_user_data(tg_id_int)
+            if db_data is None:
+                await message.answer(
+                    f"Пользователь {tg_id} не найден. Попробуйте ввести Telegram id еще раз"
+                )
+                await state.clear()
+            elif not await DatabaseHelper.instance().is_banned(tg_id_int):
+                await message.answer(f"Пользователь {tg_id} не заблокирован")
+                await state.clear()
+            else:
+                await state.update_data(tg_id=tg_id_int)
+                await message.answer(
+                    f"Подтвердите, что необходимо разблокировать пользователя {tg_id}",
+                    reply_markup=confirm_unban_keyboard,
+                )
+    else:
+        await message.answer("Необходимо ввести Telegram id пользователя")
+
+
+@admin_router.callback_query(F.data == "confirm_unban_yes")
+async def confirm_unban_yes_handler(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    tg_id:int|None = (await state.get_data()).get("tg_id")
+    assert isinstance(callback.message, Message)
+    assert tg_id is not None
+    try:
+        await DatabaseHelper.instance().unban_user(tg_id)
+    except UserNotFoundException:
+        await callback.message.answer(
+            f"Пользователь {tg_id} не найден. Попробуйте ввести Telegram id еще раз"
+        )
+    else:
+        await callback.message.answer(f"Пользователь {tg_id} разблокирован")
+    await state.clear()
+
+
+@admin_router.callback_query(F.data == "confirm_unban_no")
+async def confirm_unban_no_handler(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    assert isinstance(callback.message, Message)
+    await callback.message.answer("Пользователь не был разблокирован")
+    await state.clear()

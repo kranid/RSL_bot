@@ -6,13 +6,14 @@ def validate_tg_id_format(value: str) -> bool:
     return value.isdigit()
 
 
-def format_show_users_message(users_list: list[tuple[int, str, str]]) -> str:
+def format_show_users_message(users_list: list[tuple[int, str, str, bool]]) -> str:
     msg = "Пользователи:\n"
     users_list_str = "\n".join(
         [
             f" - TG id: {user_data[0]}"
             f"{f', username {user_data[1]}' if user_data[1] else ''}, "
-            f"role {user_data[2]}"
+            f"role {user_data[2]}, "
+            f"status {'заблокирован' if user_data[3] else 'активен'}"
             for user_data in users_list
         ]
     )
