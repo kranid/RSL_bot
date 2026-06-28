@@ -39,19 +39,28 @@ async def create_user_router() -> Router:
         await state.clear()
         assert message.from_user is not None
 
+        welcome_text = (
+            "Добро пожаловать! \nЯ бот для перевода русского жестового языка.\n"
+            "Запишите кружочек или отправьте видеофайл для тестирования ML модели "
+        )
         provided_code = (command.args or "").strip()
-        if provided_code == settings.tg.invite_code:
-            current_role = await DatabaseHelper.instance().get_user_role(message.from_user.id)
-            if current_role is None:
-                # выдаём роль только тем, у кого её ещё нет
-                # (admin/superadmin/уже выданный user не трогаем — не понижаем)
-                await DatabaseHelper.instance().add_user_or_update(
-                    message.from_user.id, message.from_user.username, role="user", manual_flg=True
-                )
-            await message.answer(
-                "Добро пожаловать! \nЯ бот для перевода русского жестового языка.\n"
-                "Запишите кружочек или отправьте видеофайл для тестирования ML модели "
+        current_role = await DatabaseHelper.instance().get_user_role(message.from_user.id)
+
+        if current_role is not None:
+            await DatabaseHelper.instance().add_user_or_update(
+                message.from_user.id, message.from_user.username, role=None
             )
+            await message.answer(welcome_text)
+            return
+
+        if provided_code == settings.tg.invite_code:
+            await DatabaseHelper.instance().add_user_or_update(
+                message.from_user.id,
+                message.from_user.username,
+                role="user",
+                manual_flg=True,
+            )
+            await message.answer(welcome_text)
             return
 
         # без кода или неверный код -> роль не выдаём; заявка на одобрение будет в коммите 2
