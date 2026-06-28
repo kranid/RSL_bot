@@ -185,3 +185,28 @@ class DatabaseHelper:
             for row in rows
         ]
         return users_list
+
+    async def select_pending_users(
+        self, limit: int = 20
+    ) -> list[tuple[int, str | None]]:
+        rows = await self.__pool.fetch(
+            """
+                select u.tg_id, u.username
+                from users u
+                where u.role is null and u.banned = false
+                order by u.date_created
+                limit $1
+            """,
+            limit
+        )
+        return [(row['tg_id'], row['username']) for row in rows]
+
+    async def count_pending_users(self) -> int:
+        result = await self.__pool.fetchval(
+            """
+                select count(*)
+                from users u
+                where u.role is null and u.banned = false
+            """
+        )
+        return int(result or 0)

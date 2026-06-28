@@ -1,7 +1,15 @@
-from aiogram import F, Router
+import html
+import logging
+
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from core.database.database_helper import DatabaseHelper
 from core.utils import format_show_users_message, validate_tg_id_format
@@ -21,6 +29,9 @@ from managers.message_manager import TypeStates
 
 
 admin_router = Router()
+logger = logging.getLogger(__name__)
+
+PENDING_PAGE_SIZE = 20
 
 
 @admin_router.message(Command("add_user"))
@@ -62,6 +73,107 @@ async def show_all_users(message: Message) -> None:
     ] = await DatabaseHelper.instance().select_users()
     msg = format_show_users_message(users_list)
     await message.answer(text=msg)
+
+
+@admin_router.message(Command("show_requests"))
+async def show_requests_handler(message: Message) -> None:
+    pending = await DatabaseHelper.instance().select_pending_users(
+        limit=PENDING_PAGE_SIZE
+    )
+    total = await DatabaseHelper.instance().count_pending_users()
+    if not pending:
+        await message.answer("Заявок на доступ нет")
+        return
+
+    for tg_id, username in pending:
+        if username:
+            who = f"@{html.escape(username)}"
+        else:
+            who = f'<a href="tg://user?id={tg_id}">профиль</a>'
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✅ Одобрить",
+                        callback_data=f"approve:{tg_id}",
+                    ),
+                ]
+            ]
+        )
+        await message.answer(f"{who} - <code>{tg_id}</code>", reply_markup=kb)
+
+    shown = len(pending)
+    if total > shown:
+        await message.answer(
+            f"Показаны {shown} из {total}. Одобрите этих и вызовите "
+            f"/show_requests снова для следующих."
+        )
+    else:
+        await message.answer(f"Всего заявок: {total}")
+
+
+@admin_router.callback_query(F.data.startswith("approve:"))
+async def approve_request_handler(callback: CallbackQuery, bot: Bot) -> None:
+    assert isinstance(callback.message, Message)
+    assert callback.from_user is not None
+    assert callback.data is not None
+
+    actor_role = await DatabaseHelper.instance().get_user_role(callback.from_user.id)
+    if actor_role not in ("admin", "superadmin"):
+        await callback.answer("Недостаточно прав", show_alert=True)
+        return
+
+    try:
+        target_id = int(callback.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("Некорректная заявка", show_alert=True)
+        return
+
+    target_data = await DatabaseHelper.instance().select_user_data(target_id)
+    if target_data is None:
+        await callback.answer("Заявка не найдена", show_alert=True)
+        return
+    current_role = target_data[2]
+    if current_role is not None:
+        await callback.answer("У пользователя уже есть роль")
+        return
+    if await DatabaseHelper.instance().is_banned(target_id):
+        await callback.answer("Пользователь заблокирован", show_alert=True)
+        return
+
+    await DatabaseHelper.instance().add_user_or_update(
+        target_id, username=None, role="user", manual_flg=True
+    )
+
+    welcome_text = (
+        "Добро пожаловать! \nЯ бот для перевода русского жестового языка.\n"
+        "Запишите кружочек или отправьте видеофайл для тестирования ML модели "
+    )
+    notification_sent = True
+    try:
+        await bot.send_message(target_id, welcome_text)
+    except Exception:
+        notification_sent = False
+        logger.warning(
+            "failed to send approval welcome message to user %s",
+            target_id,
+            exc_info=True,
+        )
+
+    if notification_sent:
+        await callback.message.edit_text(
+            f"✅ Одобрен: <code>{target_id}</code> - выдана роль user"
+        )
+        await callback.answer("Готово")
+    else:
+        await callback.message.edit_text(
+            f"✅ Одобрен: <code>{target_id}</code> - выдана роль user. "
+            f"Уведомление пользователю отправить не удалось."
+        )
+        await callback.answer(
+            "Одобрено, но уведомление не отправлено",
+            show_alert=True,
+        )
 
 
 @admin_router.message(Command("delete_user"))
