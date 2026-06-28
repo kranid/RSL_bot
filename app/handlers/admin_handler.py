@@ -12,6 +12,7 @@ from aiogram.types import (
 )
 
 from core.database.database_helper import DatabaseHelper
+from core.settings import settings
 from core.utils import format_show_users_message, validate_tg_id_format
 from exceptions.database_exceptions import (
     CantChangeHigherAccessRole,
@@ -110,6 +111,33 @@ async def show_requests_handler(message: Message) -> None:
         )
     else:
         await message.answer(f"Всего заявок: {total}")
+
+
+@admin_router.message(Command("invite"))
+async def invite_handler(message: Message) -> None:
+    assert message.bot is not None
+    me = await message.bot.get_me()
+    link = f"https://t.me/{me.username}?start={settings.tg.invite_code}"
+    await message.answer(
+        f"Пригласительная ссылка:\n{link}\n\n"
+        f"Отправьте её тем, кому нужно выдать доступ. "
+        f"Перешедшие по ней получат роль user автоматически."
+    )
+
+
+@admin_router.message(Command("stats"))
+async def stats_handler(message: Message) -> None:
+    stats = await DatabaseHelper.instance().get_users_stats()
+    await message.answer(
+        f"Статистика пользователей\n\n"
+        f"Всего в базе: {stats['total']}\n\n"
+        f"С ролью:\n"
+        f"• user: {stats['user']}\n"
+        f"• admin: {stats['admin']}\n"
+        f"• superadmin: {stats['superadmin']}\n\n"
+        f"Ожидают одобрения: {stats['pending']}\n"
+        f"Забанено: {stats['banned']}"
+    )
 
 
 @admin_router.callback_query(F.data.startswith("approve:"))

@@ -210,3 +210,29 @@ class DatabaseHelper:
             """
         )
         return int(result or 0)
+
+    async def get_users_stats(self) -> dict[str, int]:
+        total = await self.__pool.fetchval("select count(*) from users")
+        active_user = await self.__pool.fetchval(
+            "select count(*) from users where role = 'user' and banned = false"
+        )
+        admin = await self.__pool.fetchval(
+            "select count(*) from users where role = 'admin'"
+        )
+        superadmin = await self.__pool.fetchval(
+            "select count(*) from users where role = 'superadmin'"
+        )
+        pending = await self.__pool.fetchval(
+            "select count(*) from users where role is null"
+        )
+        banned = await self.__pool.fetchval(
+            "select count(*) from users where banned = true"
+        )
+        return {
+            "total": int(total or 0),
+            "user": int(active_user or 0),
+            "admin": int(admin or 0),
+            "superadmin": int(superadmin or 0),
+            "pending": int(pending or 0),
+            "banned": int(banned or 0),
+        }
