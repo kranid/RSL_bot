@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - .env.local
+    environment:
+      POSTGRES_DB: ${CV_BOT__DATABASE__DB:-rsl_bot}
+      POSTGRES_USER: ${CV_BOT__DATABASE__USER:-rsl_bot}
+      POSTGRES_PASSWORD: ${CV_BOT__DATABASE__PASSWORD:-rsl_bot_password}
+    ports:
+      - "${LOCAL_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - rsl_tgbot_pgdata:/var/lib/postgresql/data
+      - ./docs/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: rsl_tgbot:dev
+    env_file:
+      - .env.local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${LOCAL_BOT_HEALTH_PORT:-8090}:8090"
+    volumes:
+      - ./app:/app:ro
+    restart: unless-stopped
+
+volumes:
+  rsl_tgbot_pgdata:
